@@ -1,0 +1,209 @@
+// Orion — esquema de base de datos (dropshipping con CJdropshipping)
+// Docs: https://pris.ly/d/prisma-schema
+// Tras editar este fichero, aplica cambios con: npx prisma migrate dev
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Role {
+  CUSTOMER
+  ADMIN
+}
+
+enum ProductStatus {
+  DRAFT // importado pero no visible en la tienda
+  ACTIVE // publicado y a la venta
+  ARCHIVED // retirado
+}
+
+enum OrderStatus {
+  PENDING // creado, aún sin pagar
+  PAID // Stripe confirmó el pago
+  PROCESSING // pedido enviado a CJ, en preparación
+  SHIPPED // CJ lo ha enviado (con tracking)
+  DELIVERED // entregado al cliente
+  CANCELLED // cancelado
+  REFUNDED // reembolsado
+}
+
+// ---------------------------------------------------------------------------
+// Usuarios
+// ---------------------------------------------------------------------------
+
+model User {
+  id    String  @id @default(cuid())
+  email String  @unique
+  name  String?
+  role  Role    @default(CUSTOMER)
+
+  // Hash de la contraseña (bcrypt). Null para clientes que compran como
+  // invitados: solo los administradores necesitan iniciar sesión.
+  passwordHash String?
+
+  orders    Order[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Catálogo: Producto -> Variantes -> Inventario
+// ---------------------------------------------------------------------------
+
+model Product {
+  id          String        @id @default(cuid())
+  slug        String        @unique // usado en la URL /productos/[slug]
+  title       String
+  description String?       @db.Text
+  images      String[] // URLs de imágenes (CJ o propias)
+  category    String?
+  status      ProductStatus @default(DRAFT)
+
+  // Mapeo con CJdropshipping
+  cjProductId String? @unique
+
+  variants  Variant[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([status])
+}
+
+model Variant {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  sku   String  @unique
+  name  String // p.ej. "Rojo / L"
+  image String?
+
+  // Precios (nunca Float para dinero)
+  supplierPrice Decimal @db.Decimal(10, 2) // coste en CJ
+  price         Decimal @db.Decimal(10, 2) // precio de venta al cliente
+  currency      String  @default("EUR")
+
+  // Atributos flexibles: { "color": "Rojo", "talla": "L" }
+  attributes Json?
+
+  // Mapeo con CJdropshipping
+  cjVariantId String? @unique
+
+  inventory  Inventory?
+  orderItems OrderItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([productId])
+}
+
+model Inventory {
+  id        String  @id @default(cuid())
+  variantId String  @unique
+  variant   Variant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  quantity     Int      @default(0)
+  lastSyncedAt DateTime @default(now()) // última sincronización de stock con CJ
+  updatedAt    DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Pedidos
+// ---------------------------------------------------------------------------
+
+model Order {
+  id          String      @id @default(cuid())
+  orderNumber String      @unique // legible para el cliente, p.ej. "ORION-1001"
+  status      OrderStatus @default(PENDING)
+
+  // Cliente (opcional: se permite compra como invitado)
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  email  String
+
+  // Importes (snapshot en el momento de la compra)
+  subtotal Decimal @db.Decimal(10, 2)
+  shipping Decimal @default(0) @db.Decimal(10, 2)
+  total    Decimal @db.Decimal(10, 2)
+  currency String  @default("EUR")
+
+  // Integración con Stripe
+  stripePaymentIntentId String? @unique
+  stripeSessionId       String? @unique
+
+  // Integración con CJdropshipping
+  cjOrderId String? @unique
+
+  // Dirección de envío
+  shippingName       String
+  shippingPhone      String?
+  shippingLine1      String
+  shippingLine2      String?
+  shippingCity       String
+  shippingState      String?
+  shippingPostalCode String
+  shippingCountry    String
+
+  // Tracking
+  trackingNumber String?
+  trackingUrl    String?
+  carrier        String?
+
+  items     OrderItem[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Lista de espera (fase de validación: tienda en modo "preview")
+// ---------------------------------------------------------------------------
+
+model WaitlistEntry {
+  id    String @id @default(cuid())
+  email String
+  // Producto que le interesaba; "" (cadena vacía) = interés general.
+  // No usamos null porque una clave única con NULL no deduplica en Postgres.
+  productSlug String   @default("")
+  source      String? // de dónde llegó (utm, "home", "producto"...)
+  createdAt   DateTime @default(now())
+
+  // Un mismo email solo se apunta una vez por producto.
+  @@unique([email, productSlug])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id      String @id @default(cuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  // Variante referenciada (SetNull para no perder el histórico si se borra)
+  variantId String?
+  variant   Variant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+
+  // Snapshot de los datos en el momento de la compra
+  productTitle  String
+  variantName   String
+  sku           String
+  image         String?
+  unitPrice     Decimal @db.Decimal(10, 2) // precio de venta unitario
+  supplierPrice Decimal @db.Decimal(10, 2) // coste CJ unitario (para calcular margen real)
+  quantity      Int
+
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
+}
