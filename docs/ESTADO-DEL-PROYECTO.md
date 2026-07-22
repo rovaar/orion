@@ -195,6 +195,15 @@ prisma/
   directa da error 500 en serverless. Regla: **directa** para migraciones/`db push`
   desde local; **pooled** en la variable de entorno de Vercel.
 - El cliente Prisma se regenera en Vercel con el script `postinstall` (`prisma generate`).
+- **Primero la BD, después el deploy.** Si un cambio toca `schema.prisma`, aplica
+  el esquema a Neon *antes* de hacer push a `main`. Vercel despliega el código
+  pero no toca la base de datos: al revés, el código nuevo consulta tablas que
+  aún no existen y revienta en producción.
+
+  ```bash
+  npx prisma db push --url "<connection string DIRECTA de Neon>"   # 1º
+  git push origin main                                             # 2º
+  ```
 
 ### Variables de entorno en Vercel (producción)
 | Variable | Valor |
