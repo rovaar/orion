@@ -15,7 +15,9 @@ Tienda online de **dropshipping** (full-stack propio) pensada para integrarse co
 creación automática de pedidos al proveedor. Objetivo: coste cero hasta tener
 ventas reales. Plan de negocio completo en [`plan-dropshipping.md`](../plan-dropshipping.md).
 
-**En producción:** https://orion-one-lac.vercel.app
+**En producción:** https://orion.boutique
+(la URL de Vercel `orion-one-lac.vercel.app` sigue activa, pero el dominio oficial
+es `orion.boutique`).
 
 ---
 
@@ -62,6 +64,7 @@ src/
 │   │       └── lista-espera/      # Emails captados
 │   └── api/
 │       ├── products/              # GET catálogo activo
+│       ├── imagenes/[id]/         # GET imagen subida desde el panel
 │       ├── checkout/              # POST crea pedido (Stripe o simulado)
 │       ├── waitlist/              # POST registra email
 │       ├── webhooks/stripe/       # Confirmación de pago (firma + idempotente)
@@ -70,7 +73,8 @@ src/
 │       └── cron/sync-stock/       # (501) sincronización stock — Fase 3
 ├── components/                    # ProductCard, ProductDetail, WaitlistForm,
 │   │                              #   CartIndicator, PreviewNotice, ClearCartOnMount
-│   └── admin/                     # ProductForm, VariantsEditor, ConfirmButton
+│   └── admin/                     # ProductForm, ImagesField, VariantsEditor,
+│                                  #   ConfirmButton
 ├── lib/                           # Lógica de negocio (ver §5)
 ├── proxy.ts                       # Guarda optimista de /admin (antes middleware.ts)
 └── generated/prisma/              # Cliente Prisma generado (gitignored)
@@ -140,11 +144,19 @@ prisma/
 - Login propio, pedidos con márgenes y cambio de estado, lista de espera.
 - **Productos: CRUD completo.** Tabla con filtros por estado (stock, rango de
   precio, margen medio, unidades vendidas) → ficha individual por producto con
-  datos, imágenes (URLs), estado y editor de variantes (crear/editar/eliminar,
+  datos, imágenes, estado y editor de variantes (crear/editar/eliminar,
   precio, coste y stock).
+- **Imágenes**: se suben desde el ordenador (o se pega una URL externa, útil
+  para CJ), con miniaturas, reordenación y borrado. Los ficheros se guardan
+  como bytes en la tabla `ImageAsset` y se sirven en `/api/imagenes/[id]` con
+  cache `immutable`. Toda la lógica de almacenamiento está aislada en
+  `src/lib/storage.ts`: si el catálogo crece y Postgres se queda corto, se
+  cambia a un blob store tocando solo ese fichero. Límite: 4 MB por imagen
+  (ver también `serverActions.bodySizeLimit` en `next.config.ts`).
 - Reglas: un producto no se puede publicar sin variantes; al eliminar, si tiene
   ventas se **archiva** en vez de borrarse (y las variantes con pedidos no se
-  pueden borrar) para no romper el histórico.
+  pueden borrar) para no romper el histórico. Al quitar una imagen subida o
+  borrar un producto, sus bytes se eliminan de la BD.
 
 ### Validación / lanzamiento (modo preview)
 - Con `NEXT_PUBLIC_STORE_MODE=preview`: se oculta el carrito/checkout y se
@@ -172,7 +184,10 @@ prisma/
 ## 8. Despliegue
 
 - **Repo:** github.com/rovaar/orion (rama `main`, auto-deploy en cada push).
-- **Vercel:** proyecto `orionv01` → https://orion-one-lac.vercel.app
+- **Vercel:** proyecto `orionv01` → https://orion.boutique
+- **Dominio:** `orion.boutique`, con los nameservers apuntando a Vercel
+  (`ns1/ns2.vercel-dns.com`), así que el DNS se gestiona desde el panel de Vercel.
+  Certificado HTTPS emitido automáticamente.
 - **Neon:** Postgres EU (London), plan gratis.
 
 ### ⚠️ Gotchas importantes
@@ -187,7 +202,7 @@ prisma/
 | `DATABASE_URL` | connection string **pooled** de Neon |
 | `SESSION_SECRET` | secreto propio (distinto del local) |
 | `NEXT_PUBLIC_STORE_MODE` | `preview` |
-| `NEXT_PUBLIC_SITE_URL` | *(pendiente)* la URL de producción |
+| `NEXT_PUBLIC_SITE_URL` | `https://orion.boutique` |
 
 ---
 
@@ -230,7 +245,7 @@ npm run db:studio      # explorador visual de la BD
 2. **Stripe en modo live** + probar con Stripe CLI (webhooks). Requiere alta fiscal.
 3. **Emails** (Resend): confirmación de pedido y envío (`email.ts`).
 4. **Rellenar las páginas legales** con datos reales.
-5. Cambiar `NEXT_PUBLIC_STORE_MODE` a `live` y añadir `NEXT_PUBLIC_SITE_URL`.
+5. Cambiar `NEXT_PUBLIC_STORE_MODE` a `live`.
 
 ### Tareas del usuario (no técnicas)
 - **Fase 1**: nicho, productos ganadores, logo/branding real (ahora hay fotos de relleno).
@@ -238,7 +253,6 @@ npm run db:studio      # explorador visual de la BD
 - **Fase 6**: marketing y captación.
 
 ### Mejoras opcionales
-- Dominio propio (se conecta en Vercel).
 - Categorías/filtros, buscador, "mis pedidos".
 - Cambiar la contraseña del admin de ejemplo (`admin@orion.test`).
 
@@ -250,6 +264,7 @@ npm run db:studio      # explorador visual de la BD
 |---|---|---|
 | GitHub | ✅ rovaar/orion | Código + auto-deploy |
 | Vercel | ✅ orionv01 | Hosting |
+| Dominio | ✅ orion.boutique | DNS gestionado por Vercel |
 | Neon | ✅ | Base de datos |
 | Stripe | 🟡 cuenta creada (modo prueba) | Pagos — faltan claves en el proyecto |
 | CJdropshipping | ⬜ pendiente | Proveedor — Fase 3 |

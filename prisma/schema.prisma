@@ -64,7 +64,10 @@ model Product {
   slug        String        @unique // usado en la URL /productos/[slug]
   title       String
   description String?       @db.Text
-  images      String[] // URLs de imágenes (CJ o propias)
+  // URLs de imágenes. Pueden ser externas (CJ) o propias, subidas desde el
+  // panel: en ese caso la "URL" es la ruta interna /api/imagenes/<id>, que
+  // sirve los bytes guardados en ImageAsset.
+  images      String[]
   category    String?
   status      ProductStatus @default(DRAFT)
 
@@ -76,6 +79,22 @@ model Product {
   updatedAt DateTime  @updatedAt
 
   @@index([status])
+}
+
+/// Imagen subida desde el panel, guardada como bytes en la propia base de datos.
+///
+/// Se sirve en /api/imagenes/[id] con cache immutable: una vez creada nunca se
+/// modifica, así que el navegador y el CDN pueden quedársela para siempre.
+///
+/// ⚠️ Postgres no es un almacén de ficheros ideal: si el catálogo crece mucho,
+/// mueve esto a un blob store cambiando solo `src/lib/storage.ts`.
+model ImageAsset {
+  id       String @id @default(cuid())
+  mimeType String
+  size     Int // bytes, para poder auditar cuánto ocupa el catálogo
+  data     Bytes
+
+  createdAt DateTime @default(now())
 }
 
 model Variant {

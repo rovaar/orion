@@ -11,3 +11,11 @@ export interface FormState {
 }
 
 export const EMPTY_FORM_STATE: FormState = {};
+
+/** Lo que devuelve uploadProductImages() al subir ficheros desde el panel. */
+export interface UploadResult {
+  /** URLs de las imágenes que se guardaron bien. */
+  urls: string[];
+  /** Primer problema encontrado, si lo hubo. */
+  error?: string;
+}

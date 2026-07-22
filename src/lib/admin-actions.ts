@@ -11,7 +11,8 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/dal";
-import type { FormState } from "@/lib/admin-form-state";
+import { deleteImages, isStoredImage, saveImage } from "@/lib/storage";
+import type { FormState, UploadResult } from "@/lib/admin-form-state";
 
 const ORDER_STATUSES = [
   "PENDING",
@@ -120,7 +121,16 @@ const productSchema = z.object({
   description: z.string().trim().max(5000).optional(),
   category: z.string().trim().max(60).optional(),
   status: z.enum(["DRAFT", "ACTIVE", "ARCHIVED"]),
-  images: z.array(z.url("Alguna imagen no es una URL válida")),
+  // Cada imagen es una URL externa (CJ, picsum…) o una ruta interna
+  // /api/imagenes/<id> de las que sube el propio panel.
+  images: z.array(
+    z
+      .string()
+      .refine(
+        (value) => isStoredImage(value) || z.url().safeParse(value).success,
+        "Alguna imagen no es una URL válida",
+      ),
+  ),
 });
 
 /** Lee y normaliza los campos del formulario de producto. */
@@ -141,6 +151,33 @@ function readProductForm(formData: FormData) {
       .map((line) => line.trim())
       .filter(Boolean),
   });
+}
+
+/**
+ * Sube una o varias imágenes desde el ordenador y devuelve sus URLs.
+ *
+ * No toca el producto: solo guarda los bytes. Es el formulario quien añade las
+ * URLs a la lista y las persiste al pulsar "Guardar". Por eso puede usarse
+ * también en el alta, antes de que el producto exista.
+ */
+export async function uploadProductImages(
+  formData: FormData,
+): Promise<UploadResult> {
+  await requireAdmin();
+
+  const files = formData.getAll("files").filter((f): f is File => f instanceof File);
+  if (files.length === 0) return { urls: [], error: "No se recibió ningún fichero" };
+
+  const urls: string[] = [];
+  for (const file of files) {
+    const result = await saveImage(file);
+    // Paramos en el primer fallo, pero devolvemos lo que ya se guardó para no
+    // perder el trabajo de las imágenes anteriores.
+    if (!result.ok) return { urls, error: result.error };
+    urls.push(result.url);
+  }
+
+  return { urls };
 }
 
 /**
@@ -206,6 +243,13 @@ export async function updateProduct(
     }
   }
 
+  // Guardamos las imágenes de antes para borrar después las que se hayan
+  // quitado de la lista (si no, sus bytes se quedarían en la BD para siempre).
+  const before = await prisma.product.findUnique({
+    where: { id: productId },
+    select: { images: true },
+  });
+
   try {
     await prisma.product.update({
       where: { id: productId },
@@ -224,6 +268,11 @@ export async function updateProduct(
     }
     throw error;
   }
+
+  const removed = (before?.images ?? []).filter(
+    (url) => isStoredImage(url) && !parsed.data.images.includes(url),
+  );
+  await deleteImages(removed);
 
   revalidateCatalog(productId);
   return { ok: true };
@@ -249,8 +298,14 @@ export async function deleteProduct(formData: FormData) {
       data: { status: "ARCHIVED" },
     });
   } else {
-    // Las variantes e inventarios caen en cascada (ver schema.prisma).
-    await prisma.product.delete({ where: { id: productId } });
+    // Las variantes e inventarios caen en cascada (ver schema.prisma), pero las
+    // imágenes subidas no: no hay relación, así que las limpiamos a mano para
+    // no dejar megas huérfanos en la base de datos.
+    const product = await prisma.product.delete({
+      where: { id: productId },
+      select: { images: true },
+    });
+    await deleteImages(product.images);
   }
 
   revalidateCatalog(productId);

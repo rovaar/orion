@@ -9,6 +9,7 @@
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import { EMPTY_FORM_STATE, type FormState } from "@/lib/admin-form-state";
+import { ImagesField } from "@/components/admin/ImagesField";
 
 interface Props {
   action: (prev: FormState, formData: FormData) => Promise<FormState>;
@@ -109,23 +110,7 @@ export function ProductForm({ action, product }: Props) {
         />
       </div>
 
-      <div>
-        <label className={LABEL} htmlFor="images">
-          Imágenes (una URL por línea)
-        </label>
-        <textarea
-          id="images"
-          name="images"
-          rows={3}
-          defaultValue={product?.images.join("\n")}
-          placeholder="https://picsum.photos/seed/lampara/800"
-          className={`mt-1 font-mono text-xs ${FIELD}`}
-        />
-        <p className="mt-1 text-xs text-neutral-400">
-          La primera es la principal. El dominio debe estar permitido en{" "}
-          <code>next.config.ts</code>.
-        </p>
-      </div>
+      <ImagesField defaultValue={product?.images} />
 
       {/* Al crear, el producto nace siempre en DRAFT: aún no tiene variantes. */}
       {isEdit && (
