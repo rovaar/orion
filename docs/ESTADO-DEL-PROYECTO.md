@@ -3,7 +3,7 @@
 > Documento vivo. Resume qué es Orion, cómo está construido, qué está hecho y
 > qué falta. Actualízalo cuando cambie algo importante.
 >
-> **Última actualización:** 2026-07-21 · **Estado:** 🟢 Online en modo *preview*
+> **Última actualización:** 2026-07-22 · **Estado:** 🟢 Online en modo *preview*
 > (lista de espera). Aún no se vende.
 
 ---
@@ -56,7 +56,9 @@ src/
 │   │   ├── login/                 # Login (fuera del grupo autenticado)
 │   │   └── (dashboard)/           # Panel protegido (layout con requireAdmin)
 │   │       ├── page.tsx           # Pedidos + métricas
-│   │       ├── productos/         # Gestión de precios/márgenes
+│   │       ├── productos/         # Tabla de productos (filtros por estado)
+│   │       │   ├── nuevo/         # Alta de producto
+│   │       │   └── [id]/          # Ficha: datos, variantes y borrado
 │   │       └── lista-espera/      # Emails captados
 │   └── api/
 │       ├── products/              # GET catálogo activo
@@ -67,7 +69,8 @@ src/
 │       ├── orders/                # (501)
 │       └── cron/sync-stock/       # (501) sincronización stock — Fase 3
 ├── components/                    # ProductCard, ProductDetail, WaitlistForm,
-│                                  #   CartIndicator, PreviewNotice, ClearCartOnMount
+│   │                              #   CartIndicator, PreviewNotice, ClearCartOnMount
+│   └── admin/                     # ProductForm, VariantsEditor, ConfirmButton
 ├── lib/                           # Lógica de negocio (ver §5)
 ├── proxy.ts                       # Guarda optimista de /admin (antes middleware.ts)
 └── generated/prisma/              # Cliente Prisma generado (gitignored)
@@ -106,6 +109,7 @@ prisma/
 | `prisma.ts` | Cliente Prisma singleton (con driver adapter pg) |
 | `products.ts` / `orders.ts` | Consultas de catálogo y pedidos para la tienda |
 | `admin-data.ts` / `admin-actions.ts` | Consultas y Server Actions del panel |
+| `admin-form-state.ts` | Tipo `FormState` que devuelven las acciones usadas con `useActionState` |
 | `checkout.ts` | Validación zod, reglas de envío, nº de pedido |
 | `store-config.ts` | Flag `NEXT_PUBLIC_STORE_MODE` (preview/live) |
 | `session.ts` / `session-token.ts` | Cookie de sesión / firma JWT (separado para el proxy) |
@@ -133,8 +137,14 @@ prisma/
 - Falta: probar end-to-end con claves reales de Stripe (ver §8).
 
 ### Panel admin (`/admin`)
-- Login propio, pedidos con márgenes y cambio de estado, gestión de precios,
-  publicar/despublicar productos, lista de espera.
+- Login propio, pedidos con márgenes y cambio de estado, lista de espera.
+- **Productos: CRUD completo.** Tabla con filtros por estado (stock, rango de
+  precio, margen medio, unidades vendidas) → ficha individual por producto con
+  datos, imágenes (URLs), estado y editor de variantes (crear/editar/eliminar,
+  precio, coste y stock).
+- Reglas: un producto no se puede publicar sin variantes; al eliminar, si tiene
+  ventas se **archiva** en vez de borrarse (y las variantes con pedidos no se
+  pueden borrar) para no romper el histórico.
 
 ### Validación / lanzamiento (modo preview)
 - Con `NEXT_PUBLIC_STORE_MODE=preview`: se oculta el carrito/checkout y se
